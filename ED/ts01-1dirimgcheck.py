@@ -1,6 +1,9 @@
 # 안경 테두리 좌표 추출 : 20210108
 # 01 : ts10arrange에서 이전
-# 01-1 : 디렉토리에 저장된 데이터를 하나씩 처리하며 확인
+# 01-1seqdataviewing : 디 렉토리에 저장된 데이터를 하나씩 처리하며 확인
+#       : 테두리 추적 방향을 ccw, cw 가변 : 내부 다리 문제 해결을 위하여...> ts02에 반영해야 함
+#       : 내곽 추출시 좌우 상단 모서리에서는 범위를 넓힌다. < cw는 중간 부위가 이상함
+#       : cw로 하면 불리한 경우 발생(balmain 2003). 추출 진입각에 따라서 다르다(momentum 고려?)
 
 import os
 import sys
@@ -20,6 +23,12 @@ except ImportError:
 
 
 for data_eye in os.listdir('./data/'):
+
+    # for test
+    # if data_eye != "MK women's panama 2004 (1).jpg":
+    #     continue
+
+
     path = './data/' + data_eye
     img = cv2.imread(path)
 
@@ -27,21 +36,14 @@ for data_eye in os.listdir('./data/'):
     img_g = cv2.GaussianBlur(img_g, (3, 3), 0)
 
     img_gb = img_g
-    # _, img_t = cv2.threshold(img_g, 127, 255, cv2.THRESH_TRUNC)     # 어느정도 하단의 그림자에 효과. 이미지에 따라 값이 다르다.
-    # _, img_otsu = cv2.threshold(img_g, 255, 255, cv2.THRESH_TRUNC + cv2.THRESH_OTSU) # 기본보다 otsu가 더나음 : ray
-    # img_adaptive = cv2.adaptiveThreshold(img_g, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 9, 2)
-    # eddef.imshow('', np.hstack([img_t, img_otsu, img_adaptive]))
-
-    ######
-    # 이미지를 나눠서 필요한 처리를 한 다음 합치면?
-    #   > 하단 경계를 기준으로 그림자 예상 영역이 포함되도록 이미지를 자르자
 
     _, img_g = cv2.threshold(img_g, 255, 255, cv2.THRESH_TRUNC + cv2.THRESH_OTSU)   # 일부 영역에만 적용이 가능하나? : 브릿지, 테두리 등이 잘 날라감
 
+    print(f'\n\n# {data_eye[:-4]} ------------------------------------------')
 
     # edged = 255 - cv2.Canny(img_g, 20, 400)
-    edged = 255 - cv2.Canny(img_g, 10, 250)
-    print(edged.shape, len(edged))
+    edged = 255 - cv2.Canny(img_g, 10, 250) # 200 ?
+    print(f'image size(y,x) = {edged.shape}')
 
     img_tc = edged
 
@@ -50,6 +52,7 @@ for data_eye in os.listdir('./data/'):
 
     point_list_outer = []
     point_list_inner = []
+    point_list_inner_auto = []  # 외곽에서 자동으로 산출되는 내곽
 
     lining_img = 255 - np.zeros_like(edged)    # 저장 좌표 데이터를 표시할 이미지(행렬)
 
@@ -79,10 +82,16 @@ for data_eye in os.listdir('./data/'):
     edgex_in_pre = 0
     edgey_in_pre = 0
 
-    # 시작을 코끝 방향에서 : 45 ~ 359, 0 ~ 44
-    theta1 = np.arange(45, 360)
-    theta2 = np.arange(0, 45)
+    ########################################################################################################################
+    # cw로 회전 : 시작을 코끝 방향에서 : 45 ~ 0, 360 ~ 46
+    theta1 = np.arange(45, 0, -1)
+    theta2 = np.arange(360, 45, -1)
     theta_range = np.concatenate((theta1, theta2), axis=0)
+    ########################################################################################################################
+    # ccw로 회전 : 시작을 코끝 방향에서 : 45 ~ 359, 0 ~ 44
+    # theta1 = np.arange(45, 360)
+    # theta2 = np.arange(0, 45)
+    # theta_range = np.concatenate((theta1, theta2), axis=0)
 
     # for theta in range(0, 360, 1):  # ccw. 몇개를 선택하는 것이 적절한가. < 돌출 문제로 근접점을 선정하려면 촘촘해야 한다
     for theta in theta_range:  # ccw. 몇개를 선택하는 것이 적절한가. < 돌출 문제로 근접점을 선정하려면 촘촘해야 한다
@@ -182,6 +191,13 @@ for data_eye in os.listdir('./data/'):
 
             cnt += 1
 
+            ################################################################################################################
+            # 임시 내곽 추출 : 검출된 외곽 기준 산출
+            r_i = r_dis - lensR / 30  # 수치 기준 조사 필요
+            x_i = int(np.cos(radian) * r_i) + ctrL_x
+            y_i = int(np.sin(radian) * r_i) + ctrL_y
+            point_list_inner_auto.append((x_i, y_i))
+
 
             ####################################################################################################################
             # 내곽 추출 : 추출된 외곽을 기준으로 진행
@@ -191,10 +207,24 @@ for data_eye in os.listdir('./data/'):
             edgey_in_dis = 0
 
             # for r in range(lensR):
-            for r in range(2, 70):            # 조금(2) 띄우고 시작, 외곽에서 내곽이 얼마나 떨어져 있나? : 중앙 브릿지 분리선에서 가장 멀 것이다. < cucci 15, ray
+            # for r in range(2, 70):            # 조금(2) 띄우고 시작, 외곽에서 내곽이 얼마나 떨어져 있나? : 중앙 브릿지 분리선에서 가장 멀 것이다. < cucci 15, ray
+            # for r in range(2, 200):              # 이미지 크기에 따라 다르다. 특히 브릿지에서 200이 넘을 수도.
+            inner_range = 0
+            if (45 < theta < 135) or (225 < theta < 270):
+                inner_range = 200
+            else:
+                inner_range = 70
+            for r in range(2, inner_range):
+
                 radian = theta * np.pi / 180
                 x = int(np.cos(radian) * r)
                 y = int(np.sin(radian) * r)
+
+                # out of bound 방지
+                if data_x <= (edgeSELx_theta - x):
+                    x = edgeSELx_theta - data_x + 1
+                if data_y <= (edgeSELy_theta - y):
+                    y = edgeSELy_theta - data_y + 1
 
                 if edged[edgeSELx_theta - x][edgeSELy_theta - y] == 0:
                     edgex_in = edgeSELx_theta - x
@@ -244,12 +274,15 @@ for data_eye in os.listdir('./data/'):
                 #   3. 기울기 차이가 크지 않은 점만 남긴다.
                 #   4. 점 몇 개로 라인 추정하는 기술은 여기서 필요한가? < 이걸로 추정해서 데이터를 갖추는 의미와 학습시의 처리와 이해상충하는 여부?
                 #   5. 같은 값이 있다면 제거????
-
     # del(point_list_outer[41])   # 문제 데이터 삭제
+
 
     # for i in range(len(point_list)-1, -1, -1):  # 역순으로 진행
 
 
+    # 검출된 내곽이 부적절하다면 자동 검출 내곽을 적용 : 판정 기준?
+    if len(point_list_inner) < 300:
+        point_list_inner = point_list_inner_auto
 
     # 정리된 리스트의 위치 정보를 이미지에 표시
     for i in range(len(point_list_outer)):
@@ -265,11 +298,11 @@ for data_eye in os.listdir('./data/'):
 
 
     # csv 파일로 데이터 저장
-    with open(r'./data_csv/n1.csv', 'w', newline='\n') as f:                             # 파일명, 저장 위치에 대한 정책 필요!!!!!!!!!!!!!!!!!
-        write = csv.writer(f)           # plt.plot(df[1], 512-df[0]) < 제대로 보려면...
-        write.writerows(point_list_outer)     # 외곽
-        write.writerows(' ')
-        write.writerows(point_list_inner)    # 내곽
+    # with open(r'./data_csv/n1.csv', 'w', newline='\n') as f:                             # 파일명, 저장 위치에 대한 정책 필요!!!!!!!!!!!!!!!!!
+    #     write = csv.writer(f)           # plt.plot(df[1], 512-df[0]) < 제대로 보려면...
+    #     write.writerows(point_list_outer)     # 외곽
+    #     write.writerows(' ')
+    #     write.writerows(point_list_inner)    # 내곽
 
     # now_filename = os.path.basename(sys.argv[0])
     # eddef.imshow(now_filename[:-3], lining_img)
@@ -278,6 +311,13 @@ for data_eye in os.listdir('./data/'):
     # cv2.imshow( data_eye[:-4], np.hstack([img_gb, img_tc, lining_img]))
     # cv2.waitKey(0)
 
-    plt.imshow(lining_img, cmap='gray')
-    plt.xlabel(data_eye[:-4])
-    plt.show()
+    # 변환 결과만 확인
+    # plt.imshow(lining_img, cmap='gray')
+    # plt.xlabel(data_eye[:-4])
+    # plt.show()
+
+    # 내외곽 획득 좌표수
+    print(f'\n외곽 : {len(point_list_outer)}, 내곽 : {len(point_list_inner)}')
+
+    # Gausianblur, canny, 최종결과 같이 확인
+    eddef.imshow(data_eye[:-4], np.hstack([img_gb, img_tc, lining_img]))

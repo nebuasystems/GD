@@ -9,7 +9,7 @@ def imshow(title, image):
     if len(image.shape) == 3:
         plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     else:
-        plt.imshow(image, cmap='gray')
+        plt.imshow(image, cmap='gray')      #, extent=(0, image.shape[1]*10, 0, image.shape[0]*10))
 
     plt.show()
 
@@ -66,7 +66,9 @@ def paraglass(img):
     left_line_y = j
 
     # 5. 좌측 안구 중앙점 산출
-    ctrL_x = int((top_line_x + bottom_line_x)/2) - 50    # 좌측 안구 중심 y   > 안경 디자인의 디테일은 상단에 많다. 중앙점을 위쪽으로 올리자  + alpha > 얼마만큼??? (30 > 50 > ?)
+    # ctrL_x = int((top_line_x + bottom_line_x)/2) - 30    # 좌측 안구 중심 y   > 안경 디자인의 디테일은 상단에 많다. 중앙점을 위쪽으로 올리자  + alpha > 얼마만큼??? (30 > 50 > 30)
+    print(int((bottom_line_x - top_line_x)/10))
+    ctrL_x = int((top_line_x + bottom_line_x) / 2) - int((bottom_line_x - top_line_x)/10)    # 좌측 안구 중심 y > 안경 디자인의 디테일은 상단에 많다. 중앙점을 위쪽으로 올리자 : 이미지 영역의 ?%
     ctrL_y = int((left_line_y*3 + right_line_y)/4)- 0    # 좌측 안구 중심 x   > 안경 중심 기준으로 계산하여서 약간 우측으로 쏠림
     print(f'실제그림에서 안구 중앙 y좌표={ctrL_x}, x좌표={ctrL_y}')
 
@@ -75,9 +77,8 @@ def paraglass(img):
     lensR =  int(np.sqrt((bottom_line_x - ctrL_x)**2 +  (left_line_y - ctrL_y)**2))   # 렌즈 반경 : 이미지상 좌하귀와 좌측 안구 중심 거리 < 중앙점을 위로 올려서 수정
     print(f'렌즈 반경 = {lensR}')
     # center = (ctrL_y, ctrL_x)
-    # cv2.circle(lining_img, center, lensR, (0, 255, 0), 1, cv2.LINE_8)
-    # cv2.circle(lining_img, center, 3, (0, 255, 0), 1, cv2.LINE_8)
-
+    # cv2.circle(img, center, lensR, (0, 255, 0), 1, cv2.LINE_8)
+    # cv2.circle(img, center, 3, (0, 255, 0), 1, cv2.LINE_8)
 
     centerAll_y = int((left_line_y + right_line_y)/2)
     print(f'전체 중심 = {centerAll_y}')
@@ -102,7 +103,7 @@ def halfline(img, centerAll_y, bottom_line_x, ctrL_x):
             break
 
     # print(f'center_list={center_list}')
-    if len(center_list) >= 2:
+    if len(center_list) >= 2:               # bridge가 2개이거나 하는 문제!!
         cv2.line(img, (centerAll_y - 1, center_list[0]), (centerAll_y - 1, center_list[1]), (0, 255, 0), 1)  # y, x 방향 주의
 
     return img

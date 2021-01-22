@@ -1,10 +1,10 @@
 # 안경 테두리 좌표 추출 : 20210108
 # 01 : ts10arrange에서 이전
 # 02 : 대량 csv 변환 + bridge 중간선 문제 처리 + 이미지 여백이 너무 없는 경우 처리
+#       > 금속테 계열에서 내곽이 추출되지 않는 문제 : 추출된 외곽으로 내곽 자동 연산하여 적용 여부 결정
 
 import os
 import sys
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -12,7 +12,6 @@ import csv
 
 try:
     sys.path.append(os.path.join(os.getcwd(), 'lib'))
-    # sys.path.append(os.path.join(Path(os.getcwd()).parent, 'lib'))
     import eddef
 except ImportError:
     print('Library Module Can Not Found')
@@ -43,6 +42,7 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
 
     point_list_outer = []
     point_list_inner = []
+    point_list_inner_auto = []  # 외곽에서 자동으로 산출되는 내곽
 
     lining_img = 255 - np.zeros_like(edged)    # 저장 좌표 데이터를 표시할 이미지(행렬)
 
@@ -55,7 +55,7 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
     ####################################################################################################################
     # 이상치 전처리
     #
-    # 1. bridge 문제 : 반으로 가르는 가상의 중간선을 실제 데이터에 적용 > 브리지가 한 줄로 나오는 등 다른 경우의 고려 사항??
+    # 1. bridge 문제 : 반으로 가르는 가상의 중간선을 실제 데이터에 적용 > 브리지가 한 줄로 나오는 등 다른 경우의 고려 사항?? > bridge가 하나 이상이면???
     edged = eddef.halfline(edged, centerAll_y, bottom_line_x, ctrL_x)
     # eddef.imshow('half line', edged)
 
@@ -63,7 +63,7 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
     ########################################################################################################################
     # 좌측 안구 중앙점에서 방사형 라인으로 교차하는 위치 좌표의 데이터 유무로 필요한 좌표 데이터를 찾는다
 
-    # 이전 선정 지점 : 이전 방사선
+    # 이전 선정 지점 : 이전 방사선에서 선정된 지점
     edgex_pre = 0
     edgey_pre = 0
     r_pre = 0
@@ -71,13 +71,15 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
     edgex_in_pre = 0
     edgey_in_pre = 0
 
-    # 시작을 코끝 방향에서 : 45 ~ 359, 0 ~ 44 : 일반적으로 가장 변형을 주기 어려운 구간
-    theta1 = np.arange(45, 360)
-    theta2 = np.arange(0, 45)
+
+    ########################################################################################################################
+    # cw로 회전 : 시작을 코끝 방향에서 : 45 ~ 0, 360 ~ 46
+    theta1 = np.arange(45, 0, -1)
+    theta2 = np.arange(360, 45, -1)
     theta_range = np.concatenate((theta1, theta2), axis=0)
 
     # for theta in range(0, 360, 1):  # ccw. 몇개를 선택하는 것이 적절한가. < 돌출 문제로 근접점을 선정하려면 촘촘해야 한다
-    for theta in theta_range:  # ccw. 몇개를 선택하는 것이 적절한가. < 돌출 문제로 근접점을 선정하려면 촘촘해야 한다
+    for theta in theta_range:
 
         # 검출 지점
         edgex_theta = 0
@@ -111,7 +113,7 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
 
             #########################################
             # 좌표가 좌상단과 중앙선+하단을 넘지 않도록 한다
-            if (top_line_x - 5 < (x + ctrL_x) < bottom_line_x + 5) and (left_line_y - 5 < (y + ctrL_y) < centerAll_y):
+            if (top_line_x - 5 < (x + ctrL_x) < bottom_line_x + 5) and (left_line_y - 5 < (y + ctrL_y) < centerAll_y):  # 수치 수정 : 이미지 사이지에 따라 가변 필요한지 검토
 
                 xedge = x + ctrL_x
                 yedge = y + ctrL_y
@@ -139,8 +141,8 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
                 ########################################################################################################
                 # 검출 후, 외곽 돌출 문제
                 #   > 이전 선정 지점과의 거리를 비교하여 가장 가까운 지점 선정
-                if (edgex_theta != 0 and edgey_theta != 0):
-                    if (edgex_pre == 0 and edgey_pre == 0):             # 이전 선정점이 없다 or 최소 거리 지점이 없다 < 초기 시작 지점에 그림자 등이 있으면 문제!!
+                if edgex_theta != 0 and edgey_theta != 0:
+                    if edgex_pre == 0 and edgey_pre == 0:             # 이전 선정점이 없다 or 최소 거리 지점이 없다 < 초기 시작 지점에 그림자 등이 있으면 문제!!
                         edgex_dis = edgex_theta
                         edgey_dis = edgey_theta
                         r_dis = r
@@ -148,7 +150,7 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
                         saved_distance = np.sqrt((edgex_pre - edgex_dis)**2 + (edgey_pre - edgey_dis)**2)
                         now_distance = np.sqrt((edgex_pre - edgex_theta)**2 + (edgey_pre - edgey_theta)**2)
 
-                        if ( (now_distance - 1) < saved_distance):        # (now_distance-alpha) : alpha 내부로 타지 않고 가길 바라
+                        if (now_distance - 1) < saved_distance:        # (now_distance-alpha) : alpha < 내부로 타지 않고 가길 바라
                                 edgex_dis = edgex_theta
                                 edgey_dis = edgey_theta
                                 r_dis = r
@@ -157,6 +159,7 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
                     # print(f'---theta={theta}, now_distance={now_distance}, saved_distance={saved_distance}, edgex={edgex_dis}, edgey={edgey_dis}, edgex_pre={edgex_pre}, edgey_pre={edgey_pre}')
 
         ### for r in range(lensR):
+
 
         ####################################################################################################################
         # 외곽 추출
@@ -173,6 +176,12 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
 
             cnt += 1
 
+            ################################################################################################################
+            # 임시 내곽 추출 : 검출된 외곽 기준 산출
+            r_i = r_dis - lensR / 30  # 수치 기준 조사 필요
+            x_i = int(np.cos(radian) * r_i) + ctrL_x
+            y_i = int(np.sin(radian) * r_i) + ctrL_y
+            point_list_inner_auto.append((x_i, y_i))
 
             ####################################################################################################################
             # 내곽 추출 : 추출된 외곽을 기준으로 진행 : 외곽 산출점에서 안쪽으로 검출
@@ -181,11 +190,27 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
             edgex_in_dis = 0
             edgey_in_dis = 0
 
-            # for r in range(lensR):
-            for r in range(2, 70):            # 조금(2) 띄우고 시작, 외곽에서 내곽이 얼마나 떨어져 있나? : 중앙 브릿지 분리선에서 가장 멀 것이다. < cucci 15,
+            inner_range = 0
+            if (45 < theta < 135) or (225 < theta < 270):
+                inner_range = 200                           # 수치 수정 : 이미지 사이지에 따라 가변 필요한지 검토
+            else:
+                inner_range = 70                            # 수치 수정 : 이미지 사이지에 따라 가변 필요한지 검토
+
+            for r in range(2, inner_range):
+
                 radian = theta * np.pi / 180
                 x = int(np.cos(radian) * r)
                 y = int(np.sin(radian) * r)
+
+                # out of bound 방지
+                if data_x <= (edgeSELx_theta - x):
+                    x = edgeSELx_theta - data_x + 1
+                if data_y <= (edgeSELy_theta - y):
+                    y = edgeSELy_theta - data_y + 1
+
+                if edged[edgeSELx_theta - x][edgeSELy_theta - y] == 0:
+                    edgex_in = edgeSELx_theta - x
+                    edgey_in = edgeSELy_theta - y
 
                 if edged[edgeSELx_theta - x][edgeSELy_theta - y] == 0:
                     edgex_in = edgeSELx_theta - x
@@ -195,31 +220,28 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
                     edgex_in, edgey_in = eddef.findhiddenpoint_in(edged, theta, edgeSELx_theta - x, edgeSELy_theta - y)
 
                 # 이전 선정 지점과의 거리를 비교하여 가장 가까운 지점 선정
-                if (edgex_in != 0 and edgey_in != 0):
-                    if (edgex_in_pre == 0 and edgey_in_pre == 0):       # 이전 선정점이 없다 or 최소 거리 지점이 없다.
+                if edgex_in != 0 and edgey_in != 0:
+                    if edgex_in_pre == 0 and edgey_in_pre == 0:       # 이전 선정점이 없다 or 최소 거리 지점이 없다.
                         edgex_in_dis = edgex_in
                         edgey_in_dis = edgey_in
                     else:                                               # 이전 선택점과의 거리 비교 : 가까우면 선택됨
                         saved_distance_in = np.sqrt((edgex_in_pre - edgex_in_dis)**2 + (edgey_in_pre - edgey_in_dis)**2)
                         now_distance_in = np.sqrt((edgex_in_pre - edgex_in)**2 + (edgey_in_pre - edgey_in)**2)
 
-                        if ( (now_distance_in - 1) <= saved_distance_in):        # (now_distance_in-alpha) : alpha 다른 라인 타지 않고 가길 바라
+                        if (now_distance_in - 1) <= saved_distance_in:        # (now_distance_in-alpha) : alpha 다른 라인 타지 않고 가길 바라
                                 edgex_in_dis = edgex_in
                                 edgey_in_dis = edgey_in
-
 
                     # print(f'---theta={theta}, now_distance_in={now_distance_in:.3f}, saved_distance_in={saved_distance_in:.3f}, edgex={edgex_in_dis}, edgey={edgey_in_dis}, edgex_pre={edgex_in_pre}, edgey_pre={edgey_in_pre}')
 
             ### for r in range(50): #inner
+
 
             if edgex_in_dis != 0 and edgey_in_dis != 0:  # 내곽 데이터가 있다면 기록
                 point_list_inner.append((edgex_in_dis, edgey_in_dis))
 
                 edgex_in_pre = edgex_in_dis
                 edgey_in_pre = edgey_in_dis
-            # else:
-            #     edgex_in_pre = 0
-            #     edgey_in_pre = 0
 
     ### for theta in range(0, 360, 3):
 
@@ -228,12 +250,9 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
     # 이상치 후처리
 
 
-    # 정리된 리스트의 위치 정보를 이미지에 표시
-    # for i in range(len(point_list_outer)):
-    #     cv2.circle(lining_img, (point_list_outer[i][1], point_list_outer[i][0]), 1, (0, 0, 255), -1)
-    #
-    # for i in range(len(point_list_inner)):
-    #     cv2.circle(lining_img, (point_list_inner[i][1], point_list_inner[i][0]), 1, (0, 0, 255), -1)
+    # 검출된 내곽이 부적절하다면 자동 검출 내곽을 적용 : 판정 기준?
+    if len(point_list_inner) < 300:
+        point_list_inner = point_list_inner_auto
 
 
     # csv 파일로 데이터 저장
@@ -248,4 +267,4 @@ for data_eye in os.listdir('./data/'):      # data파일 이름 < 한글안됨.
 
 ### for data_eye in os.listdir('./data/'):
 
-print(f'/n/n**** 총 {data_eye_cnt}개의 좌표 파일 추출')
+print(f'\n\n**** 총 {data_eye_cnt}개의 좌표 파일 추출')
